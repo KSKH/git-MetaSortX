@@ -1,0 +1,24 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+env/
+venv/
+ENV/
+.Python
+
+# Build/output artifacts (from auto-py-to-exe or PyInstaller)
+output/
+dist/
+build/
+*.spec
+*.exe
+
+# IDE settings
+.vscode/
+.idea/
+
+# macOS or Windows junk
+.DS_Store
+Thumbs.db

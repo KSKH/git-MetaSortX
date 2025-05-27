@@ -1,0 +1,8 @@
+fitz==0.0.1.dev2
+langdetect==1.0.9
+pandas==2.2.3
+Pillow==11.2.1
+PyQt6==6.9.0
+PyQt6_sip==13.10.0
+PyMuPDF==1.25.5
+pyarrow==12.0
