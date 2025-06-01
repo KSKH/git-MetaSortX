@@ -37,6 +37,6 @@ If you use or share this project, please give proper credit by linking back to t
 
 ## 📜 License
 
-© 2025 Your Name. All rights reserved.
+© 2025 Kshama Hippargekar. All rights reserved.
 
 This project is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/).

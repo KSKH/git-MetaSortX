@@ -116,14 +116,14 @@ def process_pdf(job):
     return {
         'Index': index,
         'File Name': os.path.basename(full_path),
+        'Year': year,
+        'Page Count': int(pages),
+        'Author': author,
+        'Table of Contents': bookmarks_clean,
         'Path': rel_path,
         'Absolute Path': full_path,
         'Has Bookmarks': has_bm,
-        'Bookmarks or TOC Items': bookmarks_clean,
         'Preview Image': image_path,
-        'Author': author,
-        'Year': year,
-        'Page Count': int(pages),
         'Read Status': 'Unread',
         'Keywords': keywords,
         'Description': ''

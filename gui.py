@@ -330,7 +330,7 @@ class BookBrowser(QWidget):
                 index = self.df.columns.get_loc(col_name)
                 header.resizeSection(index, width)
 
-        columns_to_hide = ["Preview Image", "Description", "Has Bookmarks", "Absolute Path", "Unique Id"]
+        columns_to_hide = ["Preview Image", "Description", "Has Bookmarks", "Path", "Unique Id", "Index"]
         for col_name in columns_to_hide:
             if col_name in self.df.columns:
                 col_index = self.df.columns.get_loc(col_name)
@@ -366,7 +366,7 @@ class BookBrowser(QWidget):
             <b>📅 Year:</b> {preview_data['Year']}<br>
             <b>📃 Pages:</b> {preview_data['Page Count']}<br>
             <b>📚 Keywords:</b> {preview_data['Keywords'].title()}<br><br>
-            <b>📑 Contents:</b><br>{preview_data['Bookmarks or TOC Items'].title().replace(';', '<br>')}<br><br>
+            <b>📑 Contents:</b><br>{preview_data['Table of Contents'].title().replace(';', '<br>')}<br><br>
         """
         self.info_label.setText(details)
 
