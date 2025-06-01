@@ -24,6 +24,7 @@ MetaSortX/
 ├── config.json # Stores last-used folder
 ├── icons/
 │ └── your_icon.ico # Window icon
+  └── your_icon.png # Splash window
 ├── requirements.txt # Python dependencies
 └── README.md
 
