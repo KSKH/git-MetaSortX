@@ -1,4 +1,9 @@
-import os, re, json, fitz, pandas as pd
+import os
+import re
+import json
+import time
+import fitz
+import pandas as pd
 from PIL import Image
 from io import BytesIO
 from langdetect import detect
@@ -6,13 +11,13 @@ from collections import Counter
 import multiprocessing
 from pathlib import Path
 from data_io import load_data, save_data, load_last_folder, save_last_folder
-import time
 
 # === CONFIGURATION ===
 output_image_dir = "preview_images"
 output_csv = "Books_Data.csv"
 error_log_path = "pdf_errors.log"
 cache_file = "last_scanned.json"
+
 os.makedirs(output_image_dir, exist_ok=True)
 
 excluded_keywords = {
@@ -23,20 +28,27 @@ excluded_keywords = {
 }
 
 
+# === UTILITY FUNCTIONS ===
+
 def is_english(word):
     try:
         return detect(word) == 'en'
     except:
         return False
 
+
 def clean_text(text):
     text = re.sub(r'[^A-Za-z\s]', '', text)
     words = text.split()
     return ' '.join([w for w in words if len(w) > 2 and is_english(w)]).title()
 
+
 def log_error(pdf_path, message):
     with open(error_log_path, 'a', encoding='utf-8') as f:
         f.write(f"{pdf_path} - {message}\n")
+
+
+# === EXTRACTION FUNCTIONS ===
 
 def extract_keywords(pdf_path, max_pages=15, top_n=15):
     try:
@@ -49,6 +61,7 @@ def extract_keywords(pdf_path, max_pages=15, top_n=15):
         log_error(pdf_path, f"Keyword extraction failed: {e}")
         return ""
 
+
 def extract_bookmarks(pdf_path):
     try:
         with fitz.open(pdf_path) as doc:
@@ -57,6 +70,7 @@ def extract_bookmarks(pdf_path):
     except Exception as e:
         log_error(pdf_path, f"Bookmark extraction failed: {e}")
         return False, []
+
 
 def extract_fallback_bookmarks(pdf_path, max_pages=10):
     bookmarks = []
@@ -70,6 +84,7 @@ def extract_fallback_bookmarks(pdf_path, max_pages=10):
         log_error(pdf_path, f"Fallback TOC failed: {e}")
     return bookmarks
 
+
 def extract_first_page_image(pdf_path, output_dir, index, zoom=1.2, quality=60):
     try:
         with fitz.open(pdf_path) as doc:
@@ -82,26 +97,53 @@ def extract_first_page_image(pdf_path, output_dir, index, zoom=1.2, quality=60):
         log_error(pdf_path, f"Image generation failed: {e}")
         return ""
 
+
 def extract_metadata(doc, pdf_path):
     try:
-        author = doc.metadata.get('author') or 'Unknown'
+        author = doc.metadata.get('author') or 'Not embedded in this file'
+        isbn = 'Missing from PDF metadata'
+        year = 'Missing from PDF metadata'
+
         for i in range(min(5, len(doc))):
             text = doc.load_page(i).get_text()
-            match = re.search(r'\b(?:published|copyright|©)?\s*(19|20)\d{2}\b', text, re.IGNORECASE)
-            if match:
-                return author.title(), match.group()
+
+            # Extract year
+            year_match = re.search(r'\b(?:published|copyright|©)?\s*((19|20)\d{2})\b', text, re.IGNORECASE)
+            if year_match:
+                year = year_match.group(1)
+
+            # Extract ISBN
+            isbn_match = re.search(
+                r'\b(?:ISBN(?:-1[03])?:?\s*)?((?:97[89][-\s]?)?\d{1,5}[-\s]?\d{1,7}[-\s]?\d{1,7}[-\s]?[\dxX])\b',
+                text,
+                re.IGNORECASE
+            )
+
+            if isbn_match:
+                raw_isbn = isbn_match.group(1)
+                cleaned_isbn = re.sub(r'[-\s]', '', raw_isbn)
+                if len(cleaned_isbn) >= 10 and not re.fullmatch(r'(19|20)\d{2}', cleaned_isbn):
+                    isbn = cleaned_isbn
+                    break
+
+        return author.title(), year, isbn
     except Exception as e:
         log_error(pdf_path, f"Metadata fallback failed: {e}")
-    return author.title(), 'Unknown'
+        return author.title(), 'Missing from PDF metadata', 'Missing from PDF metadata'
+
+
+# === CORE PROCESSING ===
 
 def process_pdf(job):
     index, full_path, rel_path = job
+
     if not Path(full_path).exists() or Path(full_path).suffix.lower() != '.pdf':
         return None
+
     try:
         with fitz.open(full_path) as doc:
             pages = len(doc)
-            author, year = extract_metadata(doc, full_path)
+            author, year, isbn = extract_metadata(doc, full_path)
     except Exception as e:
         log_error(full_path, f"PDF open failed: {e}")
         return None
@@ -109,6 +151,7 @@ def process_pdf(job):
     has_bm, bookmarks = extract_bookmarks(full_path)
     if not has_bm:
         bookmarks = extract_fallback_bookmarks(full_path)
+
     bookmarks_clean = '; '.join(bookmarks)
     image_path = extract_first_page_image(full_path, output_image_dir, index)
     keywords = extract_keywords(full_path)
@@ -117,17 +160,21 @@ def process_pdf(job):
         'Index': index,
         'File Name': os.path.basename(full_path),
         'Year': year,
+        'ISBN': isbn,
         'Page Count': int(pages),
         'Author': author,
-        'Table of Contents': bookmarks_clean,
-        'Path': rel_path,
+        'Section': Path(full_path).parent.name,
         'Absolute Path': full_path,
         'Has Bookmarks': has_bm,
+        'Table of Contents': bookmarks_clean,
         'Preview Image': image_path,
         'Read Status': 'Unread',
         'Keywords': keywords,
         'Description': ''
     }
+
+
+# === CACHING & FILE DISCOVERY ===
 
 def load_cache():
     if os.path.exists(cache_file):
@@ -135,9 +182,11 @@ def load_cache():
             return json.load(f)
     return {}
 
+
 def save_cache(cache):
     with open(cache_file, 'w', encoding='utf-8') as f:
         json.dump(cache, f)
+
 
 def find_pdfs_to_process(root, cache):
     jobs = []
@@ -152,12 +201,15 @@ def find_pdfs_to_process(root, cache):
     return jobs
 
 
+# === MAIN PIPELINE ===
+
 def start_scan(folder, on_progress=None):
     unlock_after = 1
     cache = load_cache()
     jobs = find_pdfs_to_process(folder, cache)
     total_jobs = len(jobs)
     print(f"📁 Found {total_jobs} new/updated PDFs.")
+
     processed = []
     new_cache = {}
 
@@ -167,20 +219,19 @@ def start_scan(folder, on_progress=None):
             processed.append(result)
             if on_progress and (i % unlock_after == 0 or i == total_jobs):
                 on_progress(i, total_jobs)
+
         rel_path = job[2]
         stat = os.stat(job[1])
         new_cache[rel_path] = f"{job[1].split(os.sep)[-1]}_{stat.st_size}_{int(stat.st_mtime)}"
 
     df = pd.DataFrame(processed)
+
     if not df.empty:
         save_cache(new_cache)
-        export_to_csv(df)  # existing CSV export
-
-        # Add this line to save feather file too
-        from data_io import save_data  # if not imported at top, else skip this line
-        save_data(df, folder)  # <-- Save feather & CSV backup
-
+        export_to_csv(df)
+        save_data(df, folder)
         return df
+
     return pd.DataFrame()
 
 
@@ -190,12 +241,17 @@ def export_to_csv(results, path=output_csv):
 
     for col in df.select_dtypes(include='object').columns:
         df[col] = df[col].astype(str).apply(lambda x: x.title())
+
     df.to_csv(path, index=False)
     print(f"✅ Exported {len(df)} records to {path}")
+
+
+# === ENTRY POINT ===
 
 def main():
     print("Main function started")
     time.sleep(5)
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

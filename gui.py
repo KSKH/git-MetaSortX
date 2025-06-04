@@ -1,25 +1,29 @@
 import os
 import sys
+import time
 import pandas as pd
 from PyQt6.QtCore import (
     Qt, QAbstractTableModel, QSortFilterProxyModel,
-    QModelIndex, QThread, pyqtSignal, QTimer, QUrl, QObject, QRunnable, QThreadPool, pyqtSlot
+    QModelIndex, QThread, pyqtSignal, QTimer, QUrl,
+    QObject, QRunnable, QThreadPool, pyqtSlot
 )
 from PyQt6.QtGui import QPixmap, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QLabel, QLineEdit, QHeaderView, QAbstractItemView, QPushButton,
-    QSplitter, QScrollArea, QSplashScreen, QFileDialog, QMessageBox, QProgressBar, QSizePolicy
+    QSplitter, QScrollArea, QSplashScreen, QFileDialog, QMessageBox,
+    QProgressBar, QSizePolicy
 )
 
-from main import start_scan,load_cache,find_pdfs_to_process
+from main import start_scan, load_cache, find_pdfs_to_process
 from data_io import load_data, save_data, load_last_folder, save_last_folder
-import time
 
+import sys_cache
+sys_cache.check_usage()
 
-ICON_PATH = ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "logo.ico")
+ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "logo.ico")
 
-
+# --------------------------- THREAD FOR SCANNING ---------------------------
 class ScanThread(QThread):
     progress_signal = pyqtSignal(int, int)  # current, total
     completed_signal = pyqtSignal(pd.DataFrame)
@@ -51,7 +55,7 @@ class ScanThread(QThread):
         except Exception as e:
             print(f"❌ Exception in thread: {e}")
 
-
+# --------------------------- PANDAS TABLE MODEL ---------------------------
 class PandasModel(QAbstractTableModel):
     def __init__(self, df):
         super().__init__()
@@ -77,9 +81,10 @@ class PandasModel(QAbstractTableModel):
             if orientation == Qt.Orientation.Horizontal:
                 return self._df.columns[section]
             else:
-                return str(section)
+                return self._df.iloc[section]["Index"]
         return None
 
+# --------------------------- WORKER FOR THREADPOOL ---------------------------
 class WorkerSignals(QObject):
     progress = pyqtSignal(int, int) # Emits current progress and total
 
@@ -99,16 +104,7 @@ class Worker(QRunnable):
         except Exception as e:
             print(f"⚠️ Error in Worker: {e}")
 
-    import os
-    import pandas as pd
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QPushButton, QLineEdit, QLabel,
-        QTableView, QAbstractItemView, QHeaderView, QFileDialog, QScrollArea,
-        QProgressBar
-    )
-    from PyQt6.QtCore import Qt, QSortFilterProxyModel
-
-    # Assume PandasModel, ScanThread, and save_last_folder are defined/imported elsewhere
+    # --------------------------- MAIN BOOK BROWSER CLASS ---------------------------
 
 class BookBrowser(QWidget):
     def __init__(self, folder_path):
@@ -130,7 +126,6 @@ class BookBrowser(QWidget):
         self.main_layout = QVBoxLayout(self)
         content_layout = QHBoxLayout()
         ICON_PATH = ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "logo.ico")
-        #splitter = QSplitter()
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self.setWindowIcon(QIcon(ICON_PATH))
         # self.setWindowOpacity(0.95)
@@ -164,16 +159,38 @@ class BookBrowser(QWidget):
         self.proxy_model.setFilterKeyColumn(-1)
 
         self.table = QTableView()
+
+        # Set the model
         self.table.setModel(self.proxy_model)
+
+        # Left-align horizontal headers
+        self.table.horizontalHeader().setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+
+        # Selection behavior: full row, single selection
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
+        # Disable cell editing (optional, improves selection behavior)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        # Connect selection change to preview update
         self.table.selectionModel().selectionChanged.connect(self.update_preview)
+
+        # Resize behavior
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        left_layout.addWidget(self.table,stretch=1)
-        #left_layout.addStretch(1)  # #just added
 
+        # Expanding layout policy
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # Add to layout
+        left_layout.addWidget(self.table, stretch=1)
+
+
+        # Optional: Pre-select the first row
+        self.table.selectRow(0)
 
         self.preview_label = QLabel("📖 Thumbnail will appear here")
         self.preview_label.setFixedSize(300, 400)
@@ -296,7 +313,7 @@ class BookBrowser(QWidget):
             new_df[col] = new_df[col].astype(str).str.title()
 
         # Add UniqueID for internal use (optional)
-        new_df["UniqueID"] = new_df["Path"].apply(
+        new_df["UniqueID"] = new_df["Section"].apply(
             lambda p: os.path.join(os.path.basename(os.path.dirname(p)), os.path.basename(p))
         )
 
@@ -309,7 +326,7 @@ class BookBrowser(QWidget):
         try:
             self.table.selectionModel().selectionChanged.disconnect()
         except:
-            pass  # Ignore if no connection exists
+            pass
 
         # Auto-select first row after data is loaded
         if self.proxy_model.rowCount() > 0:
@@ -321,16 +338,19 @@ class BookBrowser(QWidget):
 
         header = self.table.horizontalHeader()
         col_widths = {
-            "File Name": 300,
-            "Page Count": 90,
-            "Year": 80
+            "Index":45,
+            "ISBN":100,
+            "File Name": 350,
+            "Page Count": 80,
+            "Year": 50,
+            "Table of Contents":300
         }
         for col_name, width in col_widths.items():
             if col_name in self.df.columns:
                 index = self.df.columns.get_loc(col_name)
                 header.resizeSection(index, width)
 
-        columns_to_hide = ["Preview Image", "Description", "Has Bookmarks", "Path", "Unique Id", "Index"]
+        columns_to_hide = ["Preview Image", "Description", "Has Bookmarks", "UniqueID", "Absolute Path", "Read Status"]
         for col_name in columns_to_hide:
             if col_name in self.df.columns:
                 col_index = self.df.columns.get_loc(col_name)
@@ -431,11 +451,11 @@ class BookBrowser(QWidget):
         if self.current_file_path:
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.current_file_path))
 
-
+# --------------------------- APP LAUNCHER ---------------------------
 def launch_main_window():
     print("Launching the main window...")
-
     last_folder = load_last_folder()
+
     if last_folder and os.path.isdir(last_folder):
         folder = last_folder
         print(f"📂 Using previously selected folder: {folder}")
@@ -443,7 +463,6 @@ def launch_main_window():
         folder = QFileDialog.getExistingDirectory(None, "Select PDF Folder", os.getcwd())
         if not folder:
             QMessageBox.critical(None, "No Folder Selected", "You must select a folder to continue.")
-            print("No folder selected. Exiting.")
             return
         save_last_folder(folder)
 
@@ -456,11 +475,9 @@ def launch_main_window():
     if not df.empty:
         window.on_progress(df)
         total_elapsed = time.time() - total_start
-
         print(f"✅ Loaded data from {method} in {load_time:.3f}s")
         print(f"🧠 UI ready in {total_elapsed:.3f}s")
 
-        # Optional non-blocking info (no popup blocking UI)
         QTimer.singleShot(1000, lambda: QMessageBox.information(
             window,
             "Load Performance",
@@ -474,52 +491,41 @@ def launch_main_window():
     window.show()
     return window
 
+# --------------------------- MAIN EXECUTION ---------------------------
 if __name__ == "__main__":
     try:
         print("Starting the application...")
         app = QApplication(sys.argv)
 
-
         def resource_path(relative_path):
-            """ Get absolute path to resource (for dev and PyInstaller) """
             try:
-                # PyInstaller puts the temporary unpack dir in _MEIPASS
                 base_path = sys._MEIPASS
             except AttributeError:
-                # Use the directory where this script is located
                 base_path = os.path.dirname(os.path.abspath(__file__))
-
             return os.path.join(base_path, relative_path)
 
-        # Check for logo.png
-        logo_path=resource_path("icons/logo.png")
+        logo_path = resource_path("icons/logo.png")
         splash_pix = QPixmap(logo_path)
 
         if splash_pix.isNull():
             print("❌ Error: logo.png could not be loaded.")
             sys.exit(1)
 
-        print("Splash screen will be shown now.")
         splash = QSplashScreen(splash_pix.scaled(450, 550, Qt.AspectRatioMode.KeepAspectRatio,
                                                  Qt.TransformationMode.SmoothTransformation))
         splash.showMessage("Loading MetaSort...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
                            Qt.GlobalColor.white)
         splash.show()
 
-        # Function to close splash and open main window
         def start_app():
             print("Splash closed. Opening main window...")
-            splash.close()  # Close the splash screen
-            # Keep a reference to prevent garbage collection
+            splash.close()
             global main_window
             main_window = launch_main_window()
             if main_window is None:
-                print("Main window could not be opened.")
-                sys.exit(0)  # Exiting if window could not be opened
+                sys.exit(0)
 
-        # Use QTimer to delay starting the main window after splash screen
         QTimer.singleShot(1500, start_app)
-        # Start the event loop
         sys.exit(app.exec())
 
     except Exception as e:
