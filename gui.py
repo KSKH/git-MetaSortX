@@ -350,7 +350,7 @@ class BookBrowser(QWidget):
                 index = self.df.columns.get_loc(col_name)
                 header.resizeSection(index, width)
 
-        columns_to_hide = ["Preview Image", "Description", "Has Bookmarks", "UniqueID", "Absolute Path", "Read Status"]
+        columns_to_hide = ["Preview Image", "Description", "Has Bookmarks", "UniqueID", "Absolute Path", "Read Status", "Path"]
         for col_name in columns_to_hide:
             if col_name in self.df.columns:
                 col_index = self.df.columns.get_loc(col_name)
